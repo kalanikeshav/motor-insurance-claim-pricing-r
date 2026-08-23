@@ -684,4 +684,3 @@ The final output therefore connects:
 
 **Statistical Modelling → Actuarial Pricing → Portfolio Validation → Business Interpretation**
 
-This makes the project suitable as a portfolio demonstration of practical actuarial data science and non-life insurance pricing.

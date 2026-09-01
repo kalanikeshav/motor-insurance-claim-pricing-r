@@ -179,11 +179,11 @@ Pure premium falls substantially across the age categories, with category 5 prod
 
 This relationship becomes one of the strongest signals in the frequency model.
 
-![Claim frequency by age](plots/09_claim_frequency_by_age.png)
+![Claim frequency by age](plots/image9.png)
 
-![Claim severity by age](plots/08_claim_severity_by_age.png)
+![Claim severity by age](plots/image8.png)
 
-![Pure premium by age](plots/07_pure_premium_by_age.png)
+![Pure premium by age](plots/image7.png)
 
 ---
 
@@ -204,7 +204,7 @@ Area F stands out as the highest-risk geographic segment because it combines rel
 
 Area D has the lowest observed frequency and pure premium.
 
-![Claim frequency by age and area](plots/02_claim_frequency_by_age_area.png)
+![Claim frequency by age and area](plots/image2.png)
 
 ---
 
@@ -219,9 +219,9 @@ Area D has the lowest observed frequency and pure premium.
 
 The two groups have similar observed frequencies, but the male group has materially higher severity, producing a higher observed pure premium.
 
-![Pure premium by age and gender](plots/01_pure_premium_by_age_gender.png)
+![Pure premium by age and gender](plots/image1.png)
 
-![Claim frequency by age and gender](plots/03_claim_frequency_by_age_gender.png)
+![Claim frequency by age and gender](plots/image3.png)
 
 ---
 
@@ -278,7 +278,7 @@ Vehicle value was also examined using bands:
 
 The analysis suggests that higher-value vehicles generally exhibit higher observed claim frequency and pure premium, although the relationship is not perfectly monotonic.
 
-![Pure premium by vehicle value](plots/17_pure_premium_by_vehicle_value.png)
+![Pure premium by vehicle value](plots/image17.png)
 
 ---
 
@@ -301,13 +301,13 @@ The large difference between median and mean demonstrates the influence of high-
 
 The logarithmic transformation produces a substantially more manageable distribution for modelling.
 
-![Claim severity distribution](plots/14_claim_severity_distribution_policy_level.png)
+![Claim severity distribution](plots/image14.png)
 
-![Log claim severity](plots/13_log_claim_severity_policy.png)
+![Log claim severity](plots/image13.png)
 
-![Claim-level severity distribution](plots/06_claim_severity_distribution_claim_level.png)
+![Claim-level severity distribution](plots/image6.png)
 
-![Log claim-level severity](plots/15_log_claim_severity_distribution_claim_level.png)
+![Log claim-level severity](plots/image15.png)
 
 ---
 
@@ -390,7 +390,7 @@ and slightly reduces the Pearson dispersion.
 
 **Negative Binomial was selected as the frequency model.**
 
-![Frequency residual diagnostics](plots/12_nb_frequency_residual_diagnostics.png)
+![Frequency residual diagnostics](plots/image12.png)
 
 ---
 
@@ -535,7 +535,7 @@ This illustrates an important modelling principle:
 
 > **In pricing, in-sample fit criteria should be considered alongside out-of-sample predictive calibration and business relevance.**
 
-![Gamma severity diagnostics](plots/11_gamma_severity_diagnostics.png)
+![Gamma severity diagnostics](plots/image11.png)
 
 ---
 
@@ -621,7 +621,7 @@ The model therefore underestimates the actual test-set pure premium by only appr
 
 This is a very strong aggregate calibration result.
 
-![Actual vs predicted pure premium](plots/10_actual_vs_predicted_pure_premium_by_age.png)
+![Actual vs predicted pure premium](plots/image10.png)
 
 ---
 

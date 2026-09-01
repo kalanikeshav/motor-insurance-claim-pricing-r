@@ -1,602 +1,788 @@
-# Non-Life Insurance Claim Pricing: Frequency-Severity Modelling in R
+# 🚗 DataCar Insurance Pricing Analysis
 
-## Project Overview
+## Frequency–Severity Modelling with GLMs and Train/Test Validation
 
-This project develops a **non-life motor insurance pricing model** using the `dataCar` dataset from the `insuranceData` R package.
+This project develops an end-to-end **motor insurance pricing framework** using the `dataCar` dataset from the `insuranceData` R package.
 
-The objective is to estimate expected claim cost at the policy level by modelling the two main components of insurance risk separately:
+The analysis follows the actuarial **frequency–severity approach**:
 
-1. **Claim Frequency** — how often claims occur.
-2. **Claim Severity** — the average cost of a claim when a claim occurs.
+> **Expected Loss Cost = Expected Claim Frequency × Expected Claim Severity**
 
-These components are then combined to estimate **expected loss / pure premium**.
-
-The project follows a complete actuarial pricing workflow:
-
-> Data Audit → Exploratory Data Analysis → Train/Test Split → Frequency Modelling → Frequency Validation → Severity Modelling → Severity Validation → Frequency × Severity → Pure Premium → Business Validation
+The final workflow moves from data validation and exploratory analysis to Poisson/Negative Binomial frequency modelling, Gamma/Lognormal severity modelling, diagnostic checks, test-set validation, calibration, and final pure-premium estimation.
 
 ---
 
-## Project Name
+## 📌 Executive Summary
 
-### **Motor Insurance Claim Pricing: Frequency-Severity Modelling in R**
+The analysis was performed on **67,856 motor insurance policy records** containing exposure, claim counts, claim costs, driver characteristics, vehicle characteristics and geographic area.
 
-A shorter GitHub repository name could be:
+### Key results
 
-`motor-insurance-claim-pricing-r`
+| Metric | Result |
+|---|---:|
+| Policies | 67,856 |
+| Total claim count | 4,937 |
+| Overall claim frequency | 0.1552 claims / exposure |
+| Overall claim severity | $1,886.69 |
+| Overall pure premium | **$292.90** |
+| Training observations | 54,284 |
+| Test observations | 13,572 |
+| Test actual frequency | 0.1478 |
+| Test predicted frequency | 0.1573 |
+| Frequency difference | +6.41% |
+| Test actual pure premium | **$294.17** |
+| Test predicted pure premium | **$293.93** |
+| Pure-premium difference | **-$0.24 (-0.08%)** |
 
----
-
-## Business Objective
-
-For a motor insurance portfolio, an insurer needs to understand how different policyholder and vehicle characteristics affect expected claims.
-
-The central pricing question is:
-
-> **How much expected claim cost should be associated with a policy, based on its characteristics and exposure?**
-
-The project addresses this using a traditional **frequency-severity actuarial pricing framework**.
-
-The expected loss is represented as:
-
-\[
-Expected\ Loss = Expected\ Frequency \times Expected\ Severity
-\]
-
-and pure premium is calculated as:
-
-\[
-Pure\ Premium =
-\frac{Expected\ Claim\ Cost}{Exposure}
-\]
-
-The final analysis compares actual and model-predicted pure premium on previously unseen test data.
+The final pricing model therefore produces an extremely close **portfolio-level pure-premium estimate on the unseen test set**, although frequency calibration is somewhat less precise than the final loss-cost calibration.
 
 ---
 
-## Dataset
+# 1. Business Objective
 
-The project uses the `dataCar` dataset from the R package `insuranceData`.
+The objective is to estimate the expected loss cost of an insurance policy using observable risk characteristics.
 
-The dataset contains motor insurance policy-level observations with variables describing:
+Instead of directly modelling total claim cost, the project separates the problem into two components:
 
-- Driver age category
-- Vehicle age
-- Gender
-- Geographic area
-- Vehicle body type
-- Vehicle value
-- Exposure
-- Number of claims
-- Total claim cost
+### Frequency
 
-The script begins by loading and inspecting the dataset before performing the modelling workflow.
-
----
-
-## 1. Data Audit
-
-The first stage checks the structure and consistency of the data.
-
-The script examines:
-
-- Number of observations and variables
-- Variable names
-- Data types
-- Initial observations
-- Summary statistics
-- Missing values
-- Duplicate rows
-- Unique values of categorical variables
-- Claim-related consistency checks
-
-Examples of claim consistency checks include comparing:
-
-- `numclaims`
-- `clm`
-- `claimcst0`
-
-The project identifies duplicate rows but does **not automatically remove them**, because the analysis does not establish sufficient evidence that they are erroneous observations.
-
-Categorical variables such as `agecat` and `veh_age` are converted to factors for modelling.
-
----
-
-## 2. Portfolio-Level Metrics
-
-Before modelling, the script calculates overall portfolio metrics.
-
-### Exposure
-
-Total exposure is:
+How often is a policy expected to generate claims?
 
 \[
-Total\ Exposure = \sum Exposure
+E[N_i] = \text{Expected claim frequency}
 \]
 
-### Total Claims
+### Severity
+
+How expensive is an expected claim?
 
 \[
-Total\ Claims = \sum Number\ of\ Claims
-\]
-
-### Overall Claim Frequency
-
-\[
-Frequency =
-\frac{Total\ Claims}{Total\ Exposure}
-\]
-
-### Overall Claim Severity
-
-\[
-Severity =
-\frac{Total\ Claim\ Cost}{Total\ Claims}
+E[S_i] = \text{Expected claim severity}
 \]
 
 ### Pure Premium
 
+The expected loss cost is then:
+
 \[
-Pure\ Premium =
-Frequency \times Severity
+\boxed{\text{Pure Premium}_i =
+E[N_i] \times E[S_i]}
 \]
 
-This establishes a baseline against which the modelling results can be understood.
+The model uses exposure as the denominator for frequency and as the basis for the final expected loss-cost calculation.
 
 ---
 
-# 3. Exploratory Data Analysis
+# 2. Dataset
 
-The EDA investigates how claim experience varies across important rating factors.
+The project uses the `dataCar` dataset supplied by the `insuranceData` R package.
 
-The analysis considers:
+The original dataset contains **67,856 observations and 11 variables**.
 
-- Driver age category
-- Geographic area
-- Gender
-- Vehicle body type
-- Vehicle age
-- Vehicle value
+| Variable | Description / role |
+|---|---|
+| `veh_value` | Vehicle value |
+| `exposure` | Policy exposure |
+| `clm` | Claim indicator |
+| `numclaims` | Number of claims |
+| `claimcst0` | Total claim cost |
+| `veh_body` | Vehicle body type |
+| `veh_age` | Vehicle age category |
+| `gender` | Driver gender |
+| `area` | Geographic area |
+| `agecat` | Driver age category |
+| `X_OBSTAT_` | Dataset metadata/status field |
 
-For categorical variables, the project calculates:
-
-- Exposure
-- Number of claims
-- Claim cost
-- Claim frequency
-- Claim severity
-- Pure premium
-
-This allows the portfolio to be viewed from both a frequency and severity perspective.
+Categorical variables `agecat` and `veh_age` were converted to factors before modelling.
 
 ---
 
-## 4. Visual EDA
+# 3. Data Audit and Quality Checks
 
-The project generates visualisations for important relationships in the data.
+The initial audit focused on missing values, duplicates, claim consistency and variable types.
 
-Examples include:
+### Findings
 
-### Claim Frequency by Age
+- **No missing values** were found across the variables.
+- **378 duplicate rows** were identified.
+- The duplicates were retained because the analysis did not establish sufficient evidence that they represented erroneous records.
+- There were **4,624 policies with positive claim costs / positive claim activity**.
+- No policy had `numclaims > 0` while `clm = 0`.
+- Claim cost and claim count were fully consistent:
+  - zero claims corresponded to zero claim cost;
+  - positive claim counts corresponded to positive claim costs.
 
-Shows how the observed frequency of claims varies across driver age categories.
+The claim-count distribution was:
 
-### Claim Severity by Age
+| Number of claims | Policies |
+|---:|---:|
+| 0 | 63,232 |
+| 1 | 4,333 |
+| 2 | 271 |
+| 3 | 18 |
+| 4 | 2 |
 
-Shows differences in average claim cost across age categories.
-
-### Pure Premium by Age
-
-Combines claim frequency and severity into an overall expected claim-cost measure.
-
-### Claim Severity Distribution
-
-The distribution of claim amounts is examined both:
-
-- On the original scale
-- On the logarithmic scale
-
-The log transformation is particularly useful for understanding the skewness commonly observed in insurance claim costs.
-
-### Vehicle Value Distribution
-
-The project also examines the distribution of vehicle value.
-
-Vehicle value is subsequently grouped into bands to examine how pure premium varies with vehicle value.
+This strong concentration at zero is typical of insurance claim-frequency data and motivates count-data modelling rather than ordinary regression.
 
 ---
 
-# 5. Multivariate Frequency Modelling
+# 4. Portfolio-Level Baseline
 
-After EDA, the project moves to multivariate modelling.
+Before fitting GLMs, the overall portfolio metrics were calculated.
 
-The response variable is:
+### Overall frequency
 
-`numclaims`
+\[
+\frac{\sum \text{Claims}}{\sum \text{Exposure}}
+= 0.15525
+\]
 
-The explanatory variables are:
+### Overall severity
 
-- `agecat`
-- `veh_age`
-- `gender`
-- `area`
-- `veh_body`
+\[
+\frac{\sum \text{Claim Cost}}
+{\sum \text{Claims}}
+= \$1,886.69
+\]
 
-Exposure is incorporated through an offset:
+### Overall pure premium
+
+\[
+0.15525 \times 1,886.69
+= \boxed{\$292.90}
+\]
+
+This provides an important benchmark against which the final model can be evaluated.
+
+---
+
+# 5. Exploratory Data Analysis
+
+## 5.1 Driver Age
+
+Driver age showed a clear relationship with insurance risk.
+
+| Age category | Frequency | Severity | Pure premium |
+|---:|---:|---:|---:|
+| 1 | 0.201 | $2,490 | **$500** |
+| 2 | 0.170 | $1,985 | $337 |
+| 3 | 0.160 | $1,793 | $288 |
+| 4 | 0.156 | $1,810 | $282 |
+| 5 | 0.125 | $1,638 | $205 |
+| 6 | 0.126 | $1,753 | $221 |
+
+### Insight
+
+The youngest driver category has the highest observed frequency, severity and pure premium.
+
+Pure premium falls substantially across the age categories, with category 5 producing the lowest observed pure premium.
+
+This relationship becomes one of the strongest signals in the frequency model.
+
+![Claim frequency by age](plots/09_claim_frequency_by_age.png)
+
+![Claim severity by age](plots/08_claim_severity_by_age.png)
+
+![Pure premium by age](plots/07_pure_premium_by_age.png)
+
+---
+
+## 5.2 Geographic Area
+
+| Area | Frequency | Severity | Pure premium |
+|---|---:|---:|---:|
+| A | 0.155 | $1,754 | $273 |
+| B | 0.162 | $1,758 | $285 |
+| C | 0.156 | $1,919 | $299 |
+| D | 0.137 | $1,739 | $239 |
+| E | 0.149 | $2,104 | $313 |
+| F | 0.176 | $2,629 | **$462** |
+
+### Insight
+
+Area F stands out as the highest-risk geographic segment because it combines relatively high frequency with substantially higher severity.
+
+Area D has the lowest observed frequency and pure premium.
+
+![Claim frequency by age and area](plots/02_claim_frequency_by_age_area.png)
+
+---
+
+## 5.3 Gender
+
+| Gender | Frequency | Severity | Pure premium |
+|---|---:|---:|---:|
+| F | 0.158 | $1,733 | $273 |
+| M | 0.152 | $2,093 | **$318** |
+
+### Insight
+
+The two groups have similar observed frequencies, but the male group has materially higher severity, producing a higher observed pure premium.
+
+![Pure premium by age and gender](plots/01_pure_premium_by_age_gender.png)
+
+![Claim frequency by age and gender](plots/03_claim_frequency_by_age_gender.png)
+
+---
+
+## 5.4 Vehicle Body
+
+Vehicle body type produces substantial variation in observed risk.
+
+| Vehicle body | Frequency | Severity | Pure premium |
+|---|---:|---:|---:|
+| BUS | 0.387 | $1,336 | $517 |
+| CONVT | 0.092 | $2,296 | $211 |
+| COUPE | 0.235 | $2,503 | $588 |
+| HBACK | 0.151 | $1,947 | $294 |
+| HDTOP | 0.174 | $2,168 | $376 |
+| MCARA | 0.253 | $712 | $180 |
+| MIBUS | 0.142 | $2,580 | $366 |
+| PANVN | 0.166 | $1,958 | $325 |
+| RDSTR | 0.257 | $456 | $117 |
+| SEDAN | 0.153 | $1,678 | $257 |
+| STNWG | 0.163 | $1,894 | $309 |
+| TRUCK | 0.154 | $2,458 | $379 |
+| UTE | 0.131 | $2,164 | $284 |
+
+Some vehicle-body categories have relatively low exposure, so their raw experience should be interpreted cautiously.
+
+---
+
+## 5.5 Vehicle Age
+
+| Vehicle age | Frequency | Severity | Pure premium |
+|---:|---:|---:|---:|
+| 1 | 0.164 | $1,775 | $291 |
+| 2 | 0.171 | $1,836 | $314 |
+| 3 | 0.152 | $1,880 | $285 |
+| 4 | 0.140 | $2,026 | $284 |
+
+The relationship is less pronounced than driver age, but vehicle age still contributes information to the multivariate models.
+
+---
+
+## 5.6 Vehicle Value
+
+Vehicle value was also examined using bands:
+
+| Vehicle value band | Frequency | Severity | Pure premium |
+|---|---:|---:|---:|
+| [0, 0.5) | 0.115 | $1,475 | $169 |
+| [0.5, 1) | 0.140 | $2,148 | $301 |
+| [1, 1.5) | 0.153 | $1,854 | $284 |
+| [1.5, 2) | 0.158 | $1,874 | $294 |
+| [2, 3) | 0.170 | $1,835 | $312 |
+| [3, 5) | 0.180 | $1,834 | **$330** |
+| [5, Inf) | 0.165 | $2,020 | $334 |
+
+The analysis suggests that higher-value vehicles generally exhibit higher observed claim frequency and pure premium, although the relationship is not perfectly monotonic.
+
+![Pure premium by vehicle value](plots/17_pure_premium_by_vehicle_value.png)
+
+---
+
+# 6. Severity Distribution
+
+The positive-claim dataset contains **4,624 claim-active observations**.
+
+The claim severity distribution is strongly right-skewed:
+
+| Statistic | Claim severity |
+|---|---:|
+| Minimum | $200 |
+| 1st quartile | $353.80 |
+| Median | $712.60 |
+| Mean | $1,916.20 |
+| 3rd quartile | $1,952.00 |
+| Maximum | $55,922.10 |
+
+The large difference between median and mean demonstrates the influence of high-cost claims.
+
+The logarithmic transformation produces a substantially more manageable distribution for modelling.
+
+![Claim severity distribution](plots/14_claim_severity_distribution_policy_level.png)
+
+![Log claim severity](plots/13_log_claim_severity_policy.png)
+
+![Claim-level severity distribution](plots/06_claim_severity_distribution_claim_level.png)
+
+![Log claim-level severity](plots/15_log_claim_severity_distribution_claim_level.png)
+
+---
+
+# 7. Train/Test Design
+
+A reproducible **80/20 random train/test split** was used with:
 
 ```r
-offset(log(exposure))
+set.seed(123)
 ```
 
-This allows the model to account for different amounts of exposure across policies.
+| Dataset | Policies |
+|---|---:|
+| Training | 54,284 |
+| Test | 13,572 |
+
+The training set contained 3,999 claims, while the test set contained 938 claims.
+
+Exposure was explicitly retained in the frequency modelling process rather than treating every policy as having equal observation time.
 
 ---
 
-## 6. Poisson Frequency Model
+# 8. Frequency Modelling
 
-The first frequency model is a Poisson GLM with a log link.
+Two count-data GLMs were compared.
 
-Conceptually:
+## 8.1 Poisson GLM
 
-\[
-E[N_i] =
-Exposure_i \times
-\exp(X_i\beta)
-\]
-
-where:
-
-- \(N_i\) = number of claims
-- \(Exposure_i\) = policy exposure
-- \(X_i\) = policy characteristics
-- \(\beta\) = model coefficients
-
-The script examines:
-
-- Model summary
-- Exponentiated coefficients
-- Confidence intervals
-- Deviance dispersion
-- Pearson dispersion
-
-The dispersion diagnostics are important because the Poisson distribution assumes that the conditional variance is approximately equal to the conditional mean.
-
----
-
-# 7. Negative Binomial Frequency Model
-
-Insurance claim counts commonly exhibit **overdispersion**, where the observed variance is greater than what a Poisson model can accommodate.
-
-The project therefore fits a Negative Binomial model:
+The Poisson model was specified as:
 
 ```r
-glm.nb(...)
+numclaims ~ agecat + veh_age + gender + area + veh_body +
+  offset(log(exposure))
 ```
 
-The Negative Binomial model is compared with the Poisson model using:
+The exposure offset allows the model to estimate claim frequency rather than simply modelling raw claim counts.
 
-- AIC
-- Deviance dispersion
-- Pearson dispersion
+### Poisson diagnostics
 
-The model is then used as the final frequency model for test-set prediction.
+| Diagnostic | Value |
+|---|---:|
+| Deviance dispersion | 0.378 |
+| Pearson dispersion | 1.473 |
+| AIC | 28,172.40 |
 
----
-
-# 8. Frequency Model Validation
-
-The dataset is divided into:
-
-- **80% training data**
-- **20% test data**
-
-A fixed random seed is used to make the split reproducible.
-
-The frequency models are fitted only on the training data.
-
-Predictions are then generated for the unseen test data.
-
-The project calculates:
-
-### Actual Test Frequency
-
-\[
-Actual\ Frequency =
-\frac{\sum Claims}{\sum Exposure}
-\]
-
-### Predicted Test Frequency
-
-\[
-Predicted\ Frequency =
-\frac{\sum Predicted\ Claims}{\sum Exposure}
-\]
-
-The difference and percentage difference between actual and predicted frequency are then calculated.
+The Pearson dispersion is above 1, indicating residual overdispersion relative to the Poisson assumption.
 
 ---
 
-# 9. Frequency Calibration by Age
+## 8.2 Negative Binomial GLM
 
-Frequency calibration is also performed across driver age categories.
-
-For every age category, the analysis compares:
-
-- Exposure
-- Observed claims
-- Predicted claims
-- Observed frequency
-- Predicted frequency
-- Percentage difference
-
-This helps determine whether the model is systematically over- or under-predicting claim frequency for particular segments.
-
----
-
-# 10. Frequency Residual Diagnostics
-
-The final Negative Binomial frequency model is evaluated using residual diagnostics.
-
-Two diagnostic plots are generated:
-
-1. **Pearson residuals vs fitted frequency**
-2. **Deviance residuals vs fitted frequency**
-
-These plots help assess whether there are systematic patterns that could indicate model misspecification.
-
----
-
-# 11. Severity Dataset
-
-Frequency modelling uses all policies because policies with zero claims contain important information about claim frequency.
-
-Severity modelling is different.
-
-Only policies with at least one claim are included:
+A Negative Binomial model was therefore fitted:
 
 ```r
-filter(numclaims > 0)
+MASS::glm.nb(
+  numclaims ~ agecat + veh_age + gender + area + veh_body +
+    offset(log(exposure)),
+  data = train
+)
 ```
 
-For these policies, individual claim severity is calculated as:
+### Negative Binomial results
+
+| Metric | Value |
+|---|---:|
+| Theta | 2.097 |
+| AIC | **28,137.01** |
+| Deviance dispersion | 0.347 |
+| Pearson dispersion | **1.434** |
+
+The Negative Binomial model improves AIC relative to the Poisson model:
 
 \[
-Severity =
-\frac{Total\ Claim\ Cost}{Number\ of\ Claims}
+28,137.01 < 28,172.40
 \]
 
-This creates the severity modelling dataset.
+and slightly reduces the Pearson dispersion.
 
-Both training and test severity datasets are created separately to maintain the train/test modelling framework.
+### Model selection
 
----
+**Negative Binomial was selected as the frequency model.**
 
-# 12. Gamma Severity Model
-
-The first severity model is a Gamma GLM with a log link.
-
-The response variable is:
-
-`severity`
-
-The explanatory variables are:
-
-- `agecat`
-- `veh_age`
-- `gender`
-- `area`
-- `veh_body`
-
-The model uses `numclaims` as weights.
-
-The Gamma model is appropriate for modelling positive, right-skewed claim severity.
-
-The script evaluates:
-
-- Model summary
-- Exponentiated coefficients
-- Confidence intervals
-- Deviance dispersion
-- Standard GLM diagnostic plots
+![Frequency residual diagnostics](plots/12_nb_frequency_residual_diagnostics.png)
 
 ---
 
-# 13. Lognormal Severity Model
+# 9. Frequency Model Interpretation
 
-A second severity model is fitted using the logarithm of claim severity:
+Several effects remain particularly important after controlling for the other rating variables.
+
+Using age category 1 as the reference:
+
+| Age category | Frequency multiplicative effect |
+|---|---:|
+| 2 | 0.857 |
+| 3 | 0.771 |
+| 4 | 0.784 |
+| 5 | 0.621 |
+| 6 | 0.618 |
+
+The model therefore estimates materially lower claim frequency for older driver categories relative to category 1.
+
+Vehicle age category 4 also has a multiplicative frequency effect below 1.
+
+Several vehicle-body categories have substantially lower fitted frequency than the reference vehicle-body category.
+
+The age effects are particularly consistent with the univariate EDA.
+
+---
+
+# 10. Frequency Validation
+
+The Negative Binomial model was evaluated on the **unseen test dataset**.
+
+| Metric | Test result |
+|---|---:|
+| Actual frequency | 0.1478 |
+| Predicted frequency | 0.1573 |
+| Difference | +0.0095 |
+| Difference (%) | **+6.41%** |
+
+The model therefore slightly **overpredicts claim frequency** at the aggregate test-portfolio level.
+
+This is important: a frequency model can have imperfect calibration while the combined frequency × severity model still produce a highly accurate expected loss cost.
+
+---
+
+# 11. Frequency Calibration by Driver Age
+
+The test set was also calibrated by age category.
+
+| Age category | Exposure | Observed claims |
+|---:|---:|---:|
+| 1 | 539 | 106 |
+| 2 | 1,167 | 171 |
+| 3 | 1,515 | 256 |
+| 4 | 1,484 | 203 |
+| 5 | 1,023 | 121 |
+| 6 | 618 | 81 |
+
+The full calibration calculation compares observed and predicted frequency within each age category rather than relying only on the aggregate frequency.
+
+---
+
+# 12. Severity Modelling
+
+Severity was defined at the policy level as:
+
+\[
+\text{Severity}
+=
+\frac{\text{Total Claim Cost}}
+{\text{Number of Claims}}
+\]
+
+Only policies with positive claim counts were included in the severity dataset.
+
+Two severity models were compared.
+
+---
+
+## 12.1 Gamma GLM
+
+The Gamma model used a log link:
+
+```r
+severity ~ agecat + veh_age + gender + area + veh_body
+```
+
+with claim count used as the modelling weight:
+
+```r
+weights = numclaims
+```
+
+This makes the model appropriate for positive, right-skewed claim severity.
+
+---
+
+## 12.2 Lognormal GLM
+
+A second model was fitted to:
 
 ```r
 log(severity)
 ```
 
-This provides an alternative way of modelling the strongly right-skewed severity distribution.
+again using claim count as the weight.
 
-The Gamma and Lognormal models are compared using AIC.
+### AIC comparison
 
-For the Lognormal model, the prediction is transformed back to the original severity scale while accounting for the estimated variance:
+| Model | AIC |
+|---|---:|
+| Gamma | 68,054.67 |
+| Lognormal | **11,733.06** |
 
-\[
-E[Y] =
-\exp(\mu + \frac{\sigma^2}{2})
-\]
+The Lognormal model has a dramatically lower AIC.
 
----
-
-# 14. Severity Validation
-
-Severity predictions are generated on the test-set positive-claim policies.
-
-The project calculates:
-
-- Actual test severity
-- Predicted Gamma severity
-- Predicted Lognormal severity
-
-The predictions are claim-weighted so that policies with more claims contribute proportionately to the portfolio-level severity estimate.
-
-This allows the two severity models to be compared on unseen data rather than relying only on training-set fit.
+However, model selection was not based on AIC alone. Aggregate out-of-sample calibration was also examined.
 
 ---
 
-# 15. Final Frequency-Severity Pricing Model
+# 13. Severity Validation
 
-The final business calculation combines the selected frequency and severity models.
+On the test severity dataset:
 
-For each test-set policy:
+| Model | Predicted severity |
+|---|---:|
+| Actual | **$1,990.28** |
+| Gamma | **$1,882.34** |
+| Lognormal | $1,775.66 |
 
-### Predicted Frequency
+Absolute aggregate errors:
+
+- Gamma: approximately **$107.94**
+- Lognormal: approximately **$214.62**
+
+Although the Lognormal model has a much lower AIC, the Gamma model is materially closer to the observed test-set severity.
+
+### Final severity choice
+
+The **Gamma model was retained for the final frequency–severity pricing calculation** because its aggregate out-of-sample severity calibration was better.
+
+This illustrates an important modelling principle:
+
+> **In pricing, in-sample fit criteria should be considered alongside out-of-sample predictive calibration and business relevance.**
+
+![Gamma severity diagnostics](plots/11_gamma_severity_diagnostics.png)
+
+---
+
+# 14. Severity Calibration by Age
+
+Observed versus predicted severity was examined by driver age category.
+
+| Age category | Claims | Observed severity | Gamma prediction |
+|---:|---:|---:|---:|
+| 1 | 106 | $3,008 | $2,374 |
+| 2 | 171 | $2,261 | $1,959 |
+| 3 | 256 | $1,808 | $1,814 |
+| 4 | 203 | $1,699 | $1,839 |
+| 5 | 121 | $1,616 | $1,668 |
+| 6 | 81 | $1,953 | $1,721 |
+
+The largest calibration challenge is concentrated in age category 1, where observed severity is considerably above the Gamma prediction.
+
+For middle and older age categories, the Gamma model tracks observed severity more closely.
+
+---
+
+# 15. Final Frequency–Severity Pricing Model
+
+The final model combines:
+
+### Frequency
+
+**Negative Binomial GLM**
 
 \[
-\widehat{Frequency}_i
+\hat{f}_i =
+\text{NB}\left(
+agecat_i, veh\_age_i, gender_i,
+area_i, veh\_body_i, exposure_i
+\right)
 \]
 
-is obtained from the Negative Binomial model.
+### Severity
 
-### Predicted Severity
+**Gamma GLM with log link**
 
 \[
-\widehat{Severity}_i
+\hat{s}_i =
+\text{Gamma}\left(
+agecat_i, veh\_age_i, gender_i,
+area_i, veh\_body_i
+\right)
 \]
 
-is obtained from the Gamma severity model.
-
-### Predicted Expected Loss
+### Expected loss
 
 \[
 \widehat{Loss}_i =
-\widehat{Frequency}_i
-\times
-\widehat{Severity}_i
+\hat{f}_i \times \hat{s}_i
 \]
 
-### Predicted Pure Premium
+### Pure premium
+
+The portfolio-level pure premium is:
 
 \[
-\widehat{Pure\ Premium}_i =
-\frac{\widehat{Loss}_i}{Exposure_i}
+\widehat{PP}
+=
+\frac{\sum_i \widehat{Loss}_i}
+{\sum_i Exposure_i}
 \]
 
-This produces the final model-based expected claim cost for each policy.
+---
+
+# 16. Final Business Validation
+
+The most important result is the aggregate test-set comparison.
+
+| Metric | Value |
+|---|---:|
+| Actual pure premium | **$294.17** |
+| Predicted pure premium | **$293.93** |
+| Difference | **-$0.24** |
+| Difference (%) | **-0.08%** |
+
+The model therefore underestimates the actual test-set pure premium by only approximately **0.08%**.
+
+This is a very strong aggregate calibration result.
+
+![Actual vs predicted pure premium](plots/10_actual_vs_predicted_pure_premium_by_age.png)
 
 ---
 
-# 16. Business Validation
+# 17. Pure Premium Calibration by Age
 
-The model's portfolio-level performance is evaluated on the test set.
+The final model was also evaluated within each driver age category.
 
-The analysis compares:
+| Age category | Actual pure premium | Predicted pure premium |
+|---:|---:|---:|
+| 1 | $592 | $479 |
+| 2 | $331 | $340 |
+| 3 | $305 | $285 |
+| 4 | $232 | $294 |
+| 5 | $191 | $208 |
+| 6 | $256 | $210 |
 
-- Actual portfolio pure premium
-- Predicted portfolio pure premium
-- Absolute difference
-- Percentage difference
+### Interpretation
 
-The resulting `business_result` table provides a concise summary of model calibration.
+The model captures the broad shape of risk across age categories, but calibration is not uniform.
 
-The key question is:
+- **Age 1:** materially underpredicted.
+- **Age 2:** very close.
+- **Age 3:** moderately underpredicted.
+- **Age 4:** moderately overpredicted.
+- **Age 5:** moderately overpredicted.
+- **Age 6:** underpredicted.
 
-> **Does the frequency-severity model reproduce the observed aggregate claim cost of the unseen test portfolio reasonably well?**
-
----
-
-# 17. Pure Premium by Age Category
-
-The final analysis breaks the test-set results down by driver age category.
-
-For each age category, the project calculates:
-
-- Exposure
-- Actual loss
-- Predicted loss
-- Actual pure premium
-- Predicted pure premium
-- Percentage difference
-
-A final comparison chart displays:
-
-**Actual vs Predicted Pure Premium by Age**
-
-This provides a business-oriented view of model calibration across a key rating factor.
+This is an important pricing insight: **excellent portfolio-level calibration does not automatically imply perfect segment-level calibration.**
 
 ---
 
-# Model Architecture
+# 18. Key Business Insights
 
-The final modelling structure can be summarised as:
+## 1. Driver age is a major rating variable
+
+The youngest driver category has the highest observed pure premium and the frequency model assigns substantially higher expected claim frequency to it.
+
+## 2. Geographic area matters
+
+Area F has a notably higher observed pure premium, driven by both frequency and especially severity.
+
+## 3. Vehicle body type produces substantial heterogeneity
+
+Several body types exhibit very different claim frequencies and severities, suggesting meaningful segmentation potential.
+
+## 4. Vehicle value is associated with higher risk
+
+Higher-value vehicle bands generally show increasing observed frequency and pure premium, although the relationship is not perfectly monotonic.
+
+## 5. Frequency requires an overdispersion-aware model
+
+The Poisson model showed Pearson dispersion above 1. The Negative Binomial model reduced this issue and achieved a lower AIC.
+
+## 6. AIC alone should not determine the final severity model
+
+The Lognormal model had a dramatically lower AIC, but the Gamma model was substantially closer to actual test-set severity.
+
+## 7. Aggregate pricing calibration is excellent
+
+The final model predicts test-set pure premium within **0.08%** of actual experience.
+
+## 8. Segment calibration still needs improvement
+
+The age-level results show meaningful under- and overprediction in individual segments despite excellent aggregate calibration.
+
+---
+
+# 19. Modelling Workflow
 
 ```text
-                         MOTOR INSURANCE DATA
-                                  |
-                                  v
-                           DATA AUDIT
-                                  |
-                                  v
-                                EDA
-                                  |
-                                  v
-                         TRAIN / TEST SPLIT
-                           /              \
-                          /                \
-                         v                  v
-                FREQUENCY MODELING     SEVERITY DATA
-                         |                  |
-                  Poisson Model            |
-                         |                  |
-                  Dispersion Check          |
-                         |                  v
-                         v             Gamma Model
-               Negative Binomial            |
-                         |              Lognormal Model
-                         |                  |
-                         v                  v
-                  Frequency Test      Severity Test
-                    Validation          Validation
-                         \                  /
-                          \                /
-                           v              v
-                         FREQUENCY × SEVERITY
-                                  |
-                                  v
-                         EXPECTED CLAIM COST
-                                  |
-                                  v
-                            PURE PREMIUM
-                                  |
-                                  v
-                       BUSINESS VALIDATION
+Raw Data
+   │
+   ▼
+Data Audit & Consistency Checks
+   │
+   ▼
+Univariate EDA
+   │
+   ▼
+Multivariate EDA
+   │
+   ▼
+Portfolio Frequency / Severity / Pure Premium
+   │
+   ▼
+80/20 Train-Test Split
+   │
+   ├───────────────────────┐
+   ▼                       ▼
+Frequency Model         Severity Model
+   │                       │
+   ▼                       ▼
+Poisson GLM             Gamma GLM
+   │                       │
+   ▼                       ├── Lognormal GLM
+Overdispersion              │
+Diagnostics                 ▼
+   │                    AIC + Test
+   ▼                    Calibration
+Negative Binomial             │
+GLM                           ▼
+   │                    Gamma selected
+   └──────────────┬───────────┘
+                  ▼
+        Frequency × Severity
+                  │
+                  ▼
+          Expected Claim Cost
+                  │
+                  ▼
+             Pure Premium
+                  │
+                  ▼
+        Test-Set Validation
+                  │
+                  ▼
+       Segment-Level Calibration
 ```
 
 ---
 
-# Key Actuarial Concepts Demonstrated
+# 20. Project Structure
 
-This project demonstrates practical application of:
+A recommended GitHub repository structure is:
 
-- Insurance data auditing
-- Exposure-based claim frequency
-- Claim severity modelling
-- Pure premium calculation
-- Frequency-severity decomposition
-- Generalized Linear Models
-- Poisson regression
-- Negative Binomial regression
-- Overdispersion diagnostics
-- Gamma regression
-- Lognormal regression
-- Exposure offsets
-- Model comparison using AIC
-- Residual diagnostics
-- Train/test validation
-- Model calibration
-- Segment-level validation
-- Expected loss modelling
-- Portfolio-level pricing validation
+```text
+data-car-insurance-pricing/
+│
+├── README.md
+├── datacars_clean.R
+│
+├── plots/
+│   ├── 01_pure_premium_by_age_gender.png
+│   ├── 02_claim_frequency_by_age_area.png
+│   ├── 03_claim_frequency_by_age_gender.png
+│   ├── 04_vehicle_value_distribution.png
+│   ├── 05_log_claim_severity_policy.png
+│   ├── 06_claim_severity_distribution_claim_level.png
+│   ├── 07_pure_premium_by_age.png
+│   ├── 08_claim_severity_by_age.png
+│   ├── 09_claim_frequency_by_age.png
+│   ├── 10_actual_vs_predicted_pure_premium_by_age.png
+│   ├── 11_gamma_severity_diagnostics.png
+│   ├── 12_nb_frequency_residual_diagnostics.png
+│   ├── 13_log_claim_severity_policy.png
+│   ├── 14_claim_severity_distribution_policy_level.png
+│   ├── 15_log_claim_severity_distribution_claim_level.png
+│   ├── 16_claim_severity_distribution_duplicate_view.png
+│   └── 17_pure_premium_by_vehicle_value.png
+│
+└── data/
+    └── README.md
+```
+
+The raw `dataCar` dataset is provided through the `insuranceData` R package and therefore does not need to be uploaded as a separate proprietary data file.
 
 ---
 
-# R Packages Used
+# 21. Reproducibility
 
-The project uses:
+### R packages
 
 ```r
 library(insuranceData)
@@ -605,82 +791,125 @@ library(ggplot2)
 library(MASS)
 ```
 
-`tidyr` functionality is accessed through `tidyr::pivot_longer()`.
-
----
-
-# Repository Structure
-
-A simple GitHub repository structure can be:
-
-```text
-motor-insurance-claim-pricing-r/
-│
-├── datacars_clean.R
-├── README.md
-└── LICENSE
-```
-
-If you later add outputs:
-
-```text
-motor-insurance-claim-pricing-r/
-│
-├── data/
-├── scripts/
-│   └── datacars_clean.R
-├── outputs/
-│   ├── figures/
-│   └── tables/
-├── README.md
-└── LICENSE
-```
-
----
-
-# How to Run
-
-Install the required packages if they are not already installed:
-
-```r
-install.packages(c(
-  "insuranceData",
-  "dplyr",
-  "ggplot2",
-  "MASS",
-  "tidyr"
-))
-```
-
-Then run:
-
-```r
-source("datacars_clean.R")
-```
-
-The script performs the complete analysis from data loading through final business validation.
-
----
-
-# Reproducibility
-
-The train/test split uses:
+### Reproducible train/test split
 
 ```r
 set.seed(123)
+
+train_index <- sample(
+  seq_len(nrow(x)),
+  size = 0.80 * nrow(x)
+)
+
+train <- x[train_index, ]
+test  <- x[-train_index, ]
 ```
 
-This ensures that the same random train/test split can be reproduced when the script is rerun.
+The complete modelling workflow is contained in:
+
+```text
+datacars_clean.R
+```
 
 ---
 
-# Final Takeaway
+# 22. Limitations and Next Steps
 
-This project demonstrates a complete **non-life insurance pricing workflow in R**, moving from raw policy-level data to an interpretable frequency-severity pricing model.
+This project demonstrates a strong baseline actuarial pricing framework, but it should not be treated as a production-ready tariff without further validation.
 
-Rather than evaluating models only on statistical fit, the project also validates whether the final model can reproduce actual claim costs and pure premium on unseen data.
+### Recommended next steps
 
-The final output therefore connects:
+1. **Out-of-time validation**
+   - Validate on a future policy period rather than only a random holdout.
 
-**Statistical Modelling → Actuarial Pricing → Portfolio Validation → Business Interpretation**
+2. **Credibility / exposure checks**
+   - Investigate low-exposure vehicle-body segments before using raw relativities.
+
+3. **Interaction effects**
+   - Explore interactions such as:
+     - age × gender
+     - age × area
+     - age × vehicle type
+     - vehicle value × vehicle age
+
+4. **Non-linear continuous effects**
+   - Model `veh_value` using splines or controlled bands rather than relying only on categorical summaries.
+
+5. **Alternative frequency models**
+   - Compare Zero-Inflated, Hurdle or other count models if justified by the data-generating process.
+
+6. **Severity distributions**
+   - Investigate Tweedie, inverse Gaussian and other heavy-tailed alternatives.
+
+7. **Outlier treatment**
+   - Examine high-severity claims and assess whether winsorisation, capping or explicit large-loss modelling is appropriate.
+
+8. **Pricing layer**
+   - Convert pure premium into indicated premium by incorporating:
+     - expenses
+     - commission
+     - profit/risk margin
+     - reinsurance
+     - catastrophe/large-loss loads
+
+9. **Model governance**
+   - Add stability testing, sensitivity analysis, monitoring thresholds and documentation for production use.
+
+---
+
+# 23. Final Takeaway
+
+This project demonstrates the core logic behind **modern actuarial motor insurance pricing**:
+
+\[
+\boxed{
+\text{Pricing Risk}
+=
+\text{Frequency Model}
+\times
+\text{Severity Model}
+}
+\]
+
+The analysis progresses from raw policy data through statistical diagnostics and GLM selection to an interpretable, validated pure-premium estimate.
+
+The strongest result is the final test-set calibration:
+
+> **Actual pure premium: $294.17**  
+> **Predicted pure premium: $293.93**  
+> **Error: -0.08%**
+
+At the same time, the segment-level results reveal where the model still needs refinement, particularly for the youngest driver category.
+
+That combination—**portfolio calibration + segment diagnostics + actuarial interpretability**—is the main value of the project.
+
+---
+
+## 🛠️ Tools & Techniques
+
+- **R**
+- `insuranceData`
+- `dplyr`
+- `ggplot2`
+- `MASS`
+- Generalized Linear Models
+- Poisson Regression
+- Negative Binomial Regression
+- Gamma Regression
+- Lognormal Regression
+- Exposure offsets
+- Overdispersion diagnostics
+- Residual diagnostics
+- Train/Test validation
+- Calibration analysis
+- Frequency–Severity pricing
+- Pure premium estimation
+
+---
+
+## 👤 Author
+
+**Keshav Kalani**
+
+Actuarial & Data Analytics Project
 
